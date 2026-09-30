@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HKO Daily Weather</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.32.0/plotly.min.js"></script>
+<style>
+:root {
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b;
+  --secondary: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
+  --s1: #2a78d6; --s2: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff;
+    --secondary: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+    --s1: #3987e5; --s2: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff;
+  --secondary: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+  --s1: #3987e5; --s2: #d95926;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0; padding: 0 16px; line-height: 1.45;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+header { padding: 20px 0 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+h1 { font-size: 1.35rem; margin: 0; }
+.subtitle, footer { color: var(--secondary); font-size: 0.85rem; }
+#themeBtn { background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; padding: 14px 0; }
+.controls label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--secondary); }
+.controls select, .controls input { background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 6px 8px; font-size: 0.95rem; max-width: 100%; }
+section { padding: 8px 0 4px; }
+h2 { font-size: 1.05rem; margin: 14px 0 2px; }
+.sub { color: var(--secondary); font-size: 0.82rem; margin: 0 0 6px; }
+.plot { width: 100%; }
+details { margin: 6px 0 10px; font-size: 0.85rem; }
+summary { cursor: pointer; color: var(--secondary); }
+table { border-collapse: collapse; margin-top: 6px; }
+th, td { border: 1px solid var(--grid); padding: 2px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+th { color: var(--secondary); font-weight: 600; }
+footer { padding: 18px 0 28px; }
+footer a { color: var(--s1); }
+#error { color: #b3261e; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 8px; padding: 12px; margin: 12px 0; white-space: pre-wrap; }
+#error code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Hong Kong Daily Weather, 2000–present</h1>
+    <p class="subtitle">Observatory (HKO) and King's Park daily climate records. Click any chart to move the selected date.</p>
+  </div>
+  <button id="themeBtn" type="button">Theme: auto</button>
+</header>
+
+<div id="loading" class="subtitle">Loading data…</div>
+<div id="error" hidden></div>
+
+<div class="controls">
+  <label>Field
+    <select id="fieldSel"></select>
+  </label>
+  <label>Selected date
+    <input type="date" id="dateIn" min="2000-03-01">
+  </label>
+  <label>Month (View 3)
+    <select id="monthSel"></select>
+  </label>
+</div>
+
+<section>
+  <h2 id="t1h"></h2>
+  <p class="sub" id="t1s"></p>
+  <div id="p1" class="plot"></div>
+</section>
+
+<section>
+  <h2 id="t2h"></h2>
+  <p class="sub" id="t2s"></p>
+  <div id="p2" class="plot"></div>
+  <details><summary>Show table</summary><div id="p2t"></div></details>
+</section>
+
+<section>
+  <h2 id="t3h"></h2>
+  <p class="sub" id="t3s"></p>
+  <div id="p3" class="plot"></div>
+  <details><summary>Show table</summary><div id="p3t"></div></details>
+  <h2 id="t4h"></h2>
+  <p class="sub" id="t4s"></p>
+  <div id="p4" class="plot"></div>
+</section>
+
+<footer id="foot"></footer>
+</div>
+
+<script>
+"use strict";
+const FIELDS = {
+  hko_max_c:      { label: "HKO max temp",               unit: "°C",  agg: "mean", type: "line", noun: "HKO max temp" },
+  hko_min_c:      { label: "HKO min temp",               unit: "°C",  agg: "mean", type: "line", noun: "HKO min temp" },
+  hko_mean_c:     { label: "HKO mean temp",              unit: "°C",  agg: "mean", type: "line", noun: "HKO mean temp" },
+  kp_max_c:       { label: "King\u2019s Park max temp",  unit: "°C",  agg: "mean", type: "line", noun: "King\u2019s Park max temp" },
+  kp_min_c:       { label: "King\u2019s Park min temp",  unit: "°C",  agg: "mean", type: "line", noun: "King\u2019s Park min temp" },
+  kp_mean_c:      { label: "King\u2019s Park mean temp", unit: "°C",  agg: "mean", type: "line", noun: "King\u2019s Park mean temp" },
+  hko_rain_mm:    { label: "HKO rainfall",               unit: "mm",  agg: "sum",  type: "bar",  noun: "HKO rainfall" },
+  hko_rh_pct:     { label: "HKO relative humidity",      unit: "%",   agg: "mean", type: "line", noun: "HKO relative humidity" },
+  hko_pressure_hpa: { label: "HKO pressure",             unit: "hPa", agg: "mean", type: "line", noun: "HKO pressure" },
+  hko_cloud_pct:  { label: "HKO cloud cover",            unit: "%",   agg: "mean", type: "line", noun: "HKO cloud cover" },
+  kp_sun_hr:      { label: "King\u2019s Park sunshine",  unit: "h",   agg: "sum",  type: "bar",  noun: "King\u2019s Park sunshine" },
+  kp_wind_kmh:    { label: "King\u2019s Park wind speed", unit: "km/h", agg: "mean", type: "line", noun: "King\u2019s Park wind speed" },
+};
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MON_S = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+let DATES = [], COL = {}, FIRST = "2000-03-01", LAST = "";
+let field = "hko_max_c", selDate = "", month = 0, detailYear = 0;
+
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const r1 = v => Math.round(v * 10) / 10;
+const $ = id => document.getElementById(id);
+
+function baseLayout() {
+  return {
+    paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
+    font: { color: css("--ink") }, showlegend: false,
+    margin: { l: 52, r: 12, t: 8, b: 44 },
+    xaxis: { gridcolor: css("--grid"), linecolor: css("--axis"), tickfont: { color: css("--muted"), size: 11 } },
+    yaxis: { gridcolor: css("--grid"), linecolor: css("--axis"), tickfont: { color: css("--muted"), size: 11 }, zeroline: false },
+  };
+}
+function avgLine(val, text) {
+  return { shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: val, y1: val,
+    line: { color: css("--secondary"), width: 1.5, dash: "dash" } }],
+    annotations: [{ xref: "paper", x: 0, y: val, xanchor: "left", yanchor: "bottom", yshift: 8,
+      text, showarrow: false, font: { color: css("--muted"), size: 11 }, bgcolor: css("--surface") }] };
+}
+function hookClick(id, fn) {
+  const el = $(id);
+  el.removeAllListeners("plotly_click");
+  el.on("plotly_click", d => { if (d.points.length) fn(d.points[0]); });
+}
+function table(el, head, rows) {
+  $(el).innerHTML = "<table><tr><th>" + head.join("</th><th>") +
+    "</th></tr>" + rows.map(r => "<tr><td>" + r.join("</td><td>") + "</td></tr>").join("") + "</table>";
+}
+
+// ---- View 1: full timeline ----
+function renderTimeline() {
+  const F = FIELDS[field], y = COL[field];
+  const trace = F.type === "bar"
+    ? { x: DATES, y, type: "bar", marker: { color: css("--s1") }, hovertemplate: "%{x} · %{y} " + F.unit + "<extra></extra>" }
+    : { x: DATES, y, type: "scatter", mode: "lines", line: { color: css("--s1"), width: 2 },
+        hovertemplate: "%{x} · %{y} " + F.unit + "<extra></extra>" };
+  const L = baseLayout();
+  L.bargap = 0.2; L.height = 380;
+  L.xaxis.rangeslider = { visible: true, bgcolor: css("--surface"), bordercolor: css("--grid") };
+  L.shapes = [{ type: "line", x0: selDate, x1: selDate, yref: "paper", y0: 0, y1: 1,
+    line: { color: css("--s2"), width: 1.5 } }];
+  $("t1h").textContent = F.label + " (" + F.unit + "): daily, 2000\u2013" + LAST.slice(0, 4);
+  $("t1s").textContent = (F.type === "bar" ? "Daily bars." : "Daily line.") + " Orange line marks " + selDate + ". Click a point to select its date.";
+  Plotly.newPlot("p1", [trace], L, { displayModeBar: false, responsive: true });
+  hookClick("p1", p => setDate(p.x.slice ? p.x.slice(0, 10) : p.x));
+}
+
+// ---- View 2: same month-day across years ----
+function renderDOY() {
+  const F = FIELDS[field], md = selDate.slice(5), yr = +selDate.slice(0, 4);
+  const yrs = [], vals = [];
+  DATES.forEach((d, i) => {
+    if (d.slice(5) === md && COL[field][i] !== null) { yrs.push(+d.slice(0, 4)); vals.push(COL[field][i]); }
+  });
+  const hi = Math.max(...vals), lo = Math.min(...vals), avg = r1(vals.reduce((a, b) => a + b, 0) / vals.length);
+  const oX = [], oY = [], sX = [], sY = []; // others (blue) vs selected year (orange)
+  yrs.forEach((y, i) => ((y === yr ? sX : oX).push(y), (y === yr ? sY : oY).push(vals[i])));
+  const hv = "%{x} · %{y} " + F.unit + "<extra></extra>";
+  const dots = F.agg !== "sum"; // non-additive fields: dot plot, padded axis (not from zero)
+  const traces = dots ? [
+    { x: oX, y: oY, type: "scatter", mode: "markers",
+      marker: { color: css("--s1"), size: 9 }, hovertemplate: hv },
+    { x: sX, y: sY, type: "scatter", mode: "markers",
+      marker: { color: css("--s2"), size: 13, line: { color: css("--surface"), width: 2 } }, hovertemplate: hv },
+  ] : [
+    { x: oX, y: oY, type: "bar", marker: { color: css("--s1") }, hovertemplate: hv },
+    { x: sX, y: sY, type: "bar", marker: { color: css("--s2") }, hovertemplate: hv },
+  ];
+  const L = baseLayout();
+  L.bargap = 0.2; L.height = 340;
+  if (dots) L.yaxis.rangemode = "normal";
+  const A = avgLine(avg, "avg " + avg);
+  L.shapes = A.shapes; L.annotations = A.annotations;
+  const ink = css("--ink");
+  const hiN = vals.filter(v => v === hi).length, loN = vals.filter(v => v === lo).length;
+  yrs.forEach((y, i) => {
+    const isHi = vals[i] === hi && hiN === 1;
+    const isLo = vals[i] === lo && loN === 1 && lo !== hi;
+    if (isHi || isLo)
+      L.annotations.push({ x: y, y: vals[i], text: String(vals[i]), showarrow: true, arrowhead: 0,
+        ax: 0, ay: -22, font: { color: ink, size: 11 } });
+  });
+  const dLbl = +md.slice(3) + " " + MON_S[+md.slice(0, 2) - 1];
+  $("t2h").textContent = dLbl + " across years: " + F.label + " (" + F.unit + ")";
+  const unit2 = dots ? "dot" : "bar";
+  $("t2s").textContent = "One " + unit2 + " per year on " + dLbl + ". Blue = other years, orange = " + yr + "." +
+    (md === "02-29" ? " 29 Feb occurs in leap years only." : "") + " Click a " + unit2 + " to select that year.";
+  Plotly.newPlot("p2", traces, L, { displayModeBar: false, responsive: true });
+  hookClick("p2", p => setDate(p.x + "-" + md));
+  table("p2t", ["Year", F.label + " (" + F.unit + ")"], yrs.map((y, i) => [y, vals[i]]));
+}
+
+// ---- View 3: monthly aggregate by year + daily detail ----
+function monthAgg(y, m) {
+  const F = FIELDS[field], vs = [];
+  DATES.forEach((d, i) => {
+    if (+d.slice(0, 4) === y && +d.slice(5, 7) === m && COL[field][i] !== null) vs.push(COL[field][i]);
+  });
+  if (!vs.length) return null;
+  return F.agg === "sum" ? { v: r1(vs.reduce((a, b) => a + b, 0)), n: vs.length }
+                         : { v: r1(vs.reduce((a, b) => a + b, 0) / vs.length), n: vs.length };
+}
+function renderMonth() {
+  const F = FIELDS[field], m = month, word = F.agg === "sum" ? "total" : "mean";
+  const y0 = 2000, y1 = +LAST.slice(0, 4), yrs = [], ag = [], ns = [];
+  for (let y = y0; y <= y1; y++) {
+    const a = monthAgg(y, m);
+    if (a) { yrs.push(y); ag.push(a.v); ns.push(a.n); }
+  }
+  const avg = r1(ag.reduce((a, b) => a + b, 0) / ag.length);
+  const yr = +selDate.slice(0, 4);
+  const oX = [], oY = [], oT = [], sX = [], sY = [], sT = [];
+  yrs.forEach((y, i) => {
+    ((y === detailYear ? sX : oX).push(y), (y === detailYear ? sY : oY).push(ag[i]), (y === detailYear ? sT : oT).push(ns[i]));
+  });
+  const dots = F.agg !== "sum"; // non-additive fields: dot plot, padded axis (not from zero)
+  const traces = dots ? [
+    { x: oX, y: oY, type: "scatter", mode: "markers",
+      marker: { color: css("--s1"), size: 9 },
+      customdata: oT, hovertemplate: "%{x} · %{y} " + F.unit + " (%{customdata}d with data)<extra></extra>" },
+    { x: sX, y: sY, type: "scatter", mode: "markers",
+      marker: { color: css("--s2"), size: 13, line: { color: css("--surface"), width: 2 } },
+      customdata: sT, hovertemplate: "%{x} · %{y} " + F.unit + " (%{customdata}d with data)<extra></extra>" },
+  ] : [
+    { x: oX, y: oY, type: "bar", marker: { color: css("--s1") },
+      customdata: oT, hovertemplate: "%{x} · %{y} " + F.unit + " (%{customdata}d with data)<extra></extra>" },
+    { x: sX, y: sY, type: "bar", marker: { color: css("--s2") },
+      customdata: sT, hovertemplate: "%{x} · %{y} " + F.unit + " (%{customdata}d with data)<extra></extra>" },
+  ];
+  const L = baseLayout();
+  L.bargap = 0.2; L.height = 340;
+  if (dots) L.yaxis.rangemode = "normal";
+  const A = avgLine(avg, "avg " + avg);
+  L.shapes = A.shapes; L.annotations = A.annotations;
+  const unit3 = dots ? "dot" : "bar";
+  $("t3h").textContent = MONTHS[m - 1] + " " + word + " " + F.noun + " (" + F.unit + ") by year";
+  $("t3s").textContent = (F.agg === "sum" ? "Monthly total (sum of days with data)." : "Monthly mean of days with data.") +
+    " One " + unit3 + " per year. Orange = " + detailYear + ". Click a " + unit3 + " for its daily breakdown.";
+  Plotly.newPlot("p3", traces, L, { displayModeBar: false, responsive: true });
+  hookClick("p3", p => { detailYear = p.x; renderMonth(); });
+  table("p3t", ["Year", MONTHS[m - 1] + " " + word + " (" + F.unit + ")", "Days with data"],
+    yrs.map((y, i) => [y, ag[i], ns[i]]));
+  renderDetail();
+}
+function renderDetail() {
+  const F = FIELDS[field], m = month, y = detailYear;
+  const dim = new Date(y, m, 0).getDate();
+  const dy = [], dv = [];
+  for (let k = 1; k <= dim; k++) {
+    const d = y + "-" + String(m).padStart(2, "0") + "-" + String(k).padStart(2, "0");
+    const i = DATES.indexOf(d);
+    dy.push(k); dv.push(i < 0 ? null : COL[field][i]);
+  }
+  const my = [], mn = []; // all-years daily mean per day-of-month
+  for (let k = 1; k <= dim; k++) {
+    const vs = [];
+    DATES.forEach((d, i) => {
+      if (+d.slice(5, 7) === m && +d.slice(8, 10) === k && COL[field][i] !== null) vs.push(COL[field][i]);
+    });
+    my.push(k); mn.push(vs.length ? r1(vs.reduce((a, b) => a + b, 0) / vs.length) : null);
+  }
+  const L = baseLayout();
+  L.height = 300; L.margin.t = 44; L.showlegend = true;
+  L.legend = { orientation: "h", x: 0, y: 1.12, font: { color: css("--secondary"), size: 11 } };
+  $("t4h").textContent = MONTHS[m - 1] + " " + y + " daily vs typical " + MONTHS[m - 1];
+  $("t4s").textContent = "Orange = daily " + y + "; gray dashed = all-years daily mean for " + MONTHS[m - 1] + ".";
+  Plotly.newPlot("p4", [
+    { x: dy, y: dv, type: "scatter", mode: "lines", name: y + " daily",
+      line: { color: css("--s2"), width: 2 }, hovertemplate: MON_S[m - 1] + " %{x}, " + y + " · %{y} " + F.unit + "<extra></extra>" },
+    { x: my, y: mn, type: "scatter", mode: "lines", name: "all-years daily mean",
+      line: { color: css("--muted"), width: 2, dash: "dash" }, hovertemplate: MON_S[m - 1] + " %{x} typical · %{y} " + F.unit + "<extra></extra>" },
+  ], L, { displayModeBar: false, responsive: true });
+}
+
+// ---- state ----
+function setDate(d) {
+  if (d < FIRST || d > LAST || DATES.indexOf(d) < 0) return;
+  selDate = d; month = +d.slice(5, 7); detailYear = +d.slice(0, 4);
+  syncControls(); writeHash(); renderAll();
+}
+function syncControls() {
+  $("fieldSel").value = field; $("dateIn").value = selDate; $("monthSel").value = month;
+}
+function writeHash() {
+  history.replaceState(null, "", "#field=" + field + "&date=" + selDate);
+}
+function renderAll() { renderTimeline(); renderDOY(); renderMonth(); }
+
+async function load() {
+  try {
+    const r = await fetch("data/daily.csv");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const lines = (await r.text()).trim().split(/\r?\n/);
+    const head = lines[0].split(",");
+    DATES = []; COL = {};
+    head.slice(1).forEach(c => (COL[c] = []));
+    for (let i = 1; i < lines.length; i++) {
+      const c = lines[i].split(",");
+      DATES.push(c[0]);
+      head.slice(1).forEach((h, j) => COL[h].push(c[j + 1] === "" ? null : parseFloat(c[j + 1])));
+    }
+    LAST = DATES[DATES.length - 1];
+  } catch (e) {
+    $("loading").hidden = true;
+    const er = $("error");
+    er.hidden = false;
+    er.textContent = "Could not load data/daily.csv (" + e.message + ").\n" +
+      "If you opened this file directly (file://), fetch() is blocked: run `python3 -m http.server` in the project root and open http://localhost:8000/ instead.";
+    return;
+  }
+  // controls
+  Object.keys(FIELDS).forEach(k => {
+    const o = document.createElement("option");
+    o.value = k; o.textContent = FIELDS[k].label + " (" + FIELDS[k].unit + ")";
+    $("fieldSel").appendChild(o);
+  });
+  MONTHS.forEach((m, i) => {
+    const o = document.createElement("option");
+    o.value = i + 1; o.textContent = m;
+    $("monthSel").appendChild(o);
+  });
+  $("dateIn").min = FIRST; $("dateIn").max = LAST;
+  // hash
+  const h = {};
+  location.hash.slice(1).split("&").forEach(p => {
+    const kv = p.split("=");
+    if (kv.length === 2) h[kv[0]] = decodeURIComponent(kv[1]);
+  });
+  if (h.field && FIELDS[h.field]) field = h.field;
+  selDate = h.date && h.date >= FIRST && h.date <= LAST && DATES.indexOf(h.date) >= 0 ? h.date : LAST;
+  month = +selDate.slice(5, 7); detailYear = +selDate.slice(0, 4);
+  $("fieldSel").addEventListener("change", e => { field = e.target.value; writeHash(); renderAll(); });
+  $("dateIn").addEventListener("change", e => setDate(e.target.value));
+  $("monthSel").addEventListener("change", e => { month = +e.target.value; detailYear = +selDate.slice(0, 4); renderMonth(); });
+  $("loading").hidden = true;
+  $("foot").innerHTML = "Data: Hong Kong Observatory via data.gov.hk (daily climate CSVs). Latest data: " + LAST +
+    ". Files lag ~1 month. <a href=\"https://www.hko.gov.hk\">HKO</a> · <a href=\"https://data.gov.hk/en/terms-and-conditions\">data.gov.hk terms</a>";
+  syncControls(); writeHash(); renderAll();
+}
+
+// ---- theme ----
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === "auto") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", mode);
+  $("themeBtn").textContent = "Theme: " + mode;
+  try { localStorage.setItem("hko-theme", mode); } catch (e) {}
+  if (DATES.length) renderAll();
+}
+$("themeBtn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme") || "auto";
+  applyTheme(cur === "auto" ? "light" : cur === "light" ? "dark" : "auto");
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!document.documentElement.getAttribute("data-theme") && DATES.length) renderAll();
+});
+let saved = "auto";
+try { saved = localStorage.getItem("hko-theme") || "auto"; } catch (e) {}
+applyTheme(saved);
+
+load();
+</script>
+</body>
+</html>
