@@ -10,12 +10,14 @@
   --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b;
   --secondary: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
   --s1: #2a78d6; --s2: #eb6834;
+  --tmax: #eb6834; --tmean: #1baf7a; --tmin: #2a78d6;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff;
     --secondary: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835;
     --s1: #3987e5; --s2: #d95926;
+    --tmax: #d95926; --tmean: #199e70; --tmin: #3987e5;
   }
 }
 :root[data-theme="dark"] {
@@ -121,6 +123,24 @@ const FIELDS = {
 };
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MON_S = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const TST = f => ["hko_max_c","hko_mean_c","hko_min_c"].includes(f) ? "hko" : ["kp_max_c","kp_mean_c","kp_min_c"].includes(f) ? "kp" : null;
+function trioTraces(yrs, maxV, meanV, minV, sel) {
+  const rx = [], ry = [];
+  yrs.forEach((y, i) => { if (maxV[i] != null && minV[i] != null) { rx.push(y, y, null); ry.push(minV[i], maxV[i], null); } });
+  const ring = { color: css("--surface"), width: 2 }, sz = yrs.map(y => y === sel ? 13 : 9);
+  const mk = (yv, v, nm) => ({ x: yrs.slice(), y: yv, type: "scatter", mode: "markers", name: nm,
+    marker: { color: css(v), size: sz, line: ring }, hovertemplate: nm + " %{y} °C<extra></extra>" });
+  return [{ x: rx, y: ry, type: "scatter", mode: "lines",
+    line: { color: css("--muted"), width: 1.5 }, hoverinfo: "skip", showlegend: false },
+    mk(maxV, "--tmax", "Max"), mk(meanV, "--tmean", "Mean"), mk(minV, "--tmin", "Min")];
+}
+function trioShapes(sel, aMax, aMean, aMin) {
+  const S = [{ type: "rect", x0: sel - 0.45, x1: sel + 0.45, yref: "paper", y0: 0, y1: 1,
+    fillcolor: css("--ink"), opacity: 0.08, layer: "below", line: { width: 0 } }];
+  [[aMax, "--tmax"], [aMean, "--tmean"], [aMin, "--tmin"]].forEach(([v, c]) => {
+    if (v != null) S.push({ type: "line", xref: "paper", x0: 0, x1: 1, y0: v, y1: v, line: { color: css(c), width: 1, dash: "dash" } }); });
+  return S;
+}
 
 let DATES = [], COL = {}, FIRST = "2000-03-01", LAST = "";
 let field = "hko_max_c", selDate = "", month = 0, detailYear = 0;
@@ -175,6 +195,42 @@ function renderTimeline() {
 // ---- View 2: same month-day across years ----
 function renderDOY() {
   const F = FIELDS[field], md = selDate.slice(5), yr = +selDate.slice(0, 4);
+  const st = TST(field);
+  if (st) {
+    const m = {}, fx = st + "_max_c", fn = st + "_mean_c", fl = st + "_min_c";
+    DATES.forEach((d, i) => {
+      if (d.slice(5) !== md) return;
+      const y = +d.slice(0, 4);
+      (m[y] = m[y] || { a: null, b: null, c: null });
+      if (COL[fx][i] !== null) m[y].a = COL[fx][i];
+      if (COL[fn][i] !== null) m[y].b = COL[fn][i];
+      if (COL[fl][i] !== null) m[y].c = COL[fl][i];
+    });
+    const yrs = Object.keys(m).map(Number).sort((a, b) => a - b)
+      .filter(y => m[y].a !== null || m[y].b !== null || m[y].c !== null);
+    const maxV = yrs.map(y => m[y].a), meanV = yrs.map(y => m[y].b), minV = yrs.map(y => m[y].c);
+    const av = v => { const f = v.filter(x => x !== null); return f.length ? r1(f.reduce((a, b) => a + b, 0) / f.length) : null; };
+    const aMax = av(maxV), aMean = av(meanV), aMin = av(minV);
+    const L = baseLayout();
+    L.height = 340; L.showlegend = true; L.hovermode = "x unified";
+    L.legend = { orientation: "h", x: 0, y: 1.12, font: { color: css("--ink"), size: 11 } };
+    L.yaxis.rangemode = "normal";
+    L.shapes = trioShapes(yr, aMax, aMean, aMin);
+    L.annotations = [];
+    const hi = Math.max(...maxV.filter(x => x !== null)), lo = Math.min(...minV.filter(x => x !== null));
+    if (maxV.filter(v => v === hi).length === 1) L.annotations.push({ x: yrs[maxV.indexOf(hi)], y: hi, text: String(hi), showarrow: true, arrowhead: 0, ax: 0, ay: -22, font: { color: css("--ink"), size: 11 } });
+    if (lo !== hi && minV.filter(v => v === lo).length === 1) L.annotations.push({ x: yrs[minV.indexOf(lo)], y: lo, text: String(lo), showarrow: true, arrowhead: 0, ax: 0, ay: 22, font: { color: css("--ink"), size: 11 } });
+    const dLbl = +md.slice(3) + " " + MON_S[+md.slice(0, 2) - 1];
+    $("t2h").textContent = dLbl + " across years: " + (st === "hko" ? "HKO" : "King\u2019s Park") + " max/mean/min (°C)";
+    $("t2s").textContent = "One dot per year on " + dLbl + "; gray segment spans min\u2013max." +
+      " Dashed = all-years average. Shaded column = " + yr + "." +
+      (md === "02-29" ? " 29 Feb occurs in leap years only." : "") + " Click a dot to select that year.";
+    Plotly.newPlot("p2", trioTraces(yrs, maxV, meanV, minV, yr), L, { displayModeBar: false, responsive: true });
+    hookClick("p2", p => setDate(p.x + "-" + md));
+    table("p2t", ["Year", "Max (°C)", "Mean (°C)", "Min (°C)"],
+      yrs.map((y, i) => [y, maxV[i], meanV[i], minV[i]]));
+    return;
+  }
   const yrs = [], vals = [];
   DATES.forEach((d, i) => {
     if (d.slice(5) === md && COL[field][i] !== null) { yrs.push(+d.slice(0, 4)); vals.push(COL[field][i]); }
@@ -228,7 +284,30 @@ function monthAgg(y, m) {
                          : { v: r1(vs.reduce((a, b) => a + b, 0) / vs.length), n: vs.length };
 }
 function renderMonth() {
-  const F = FIELDS[field], m = month, word = F.agg === "sum" ? "total" : "mean";
+  const F = FIELDS[field], m = month, st = TST(field);
+  if (st) {
+    const cols = [st + "_max_c", st + "_mean_c", st + "_min_c"];
+    const mm = (col, y) => { const vs = []; DATES.forEach((d, i) => { if (+d.slice(0, 4) === y && +d.slice(5, 7) === m && COL[col][i] !== null) vs.push(COL[col][i]); }); return vs.length ? r1(vs.reduce((a, b) => a + b, 0) / vs.length) : null; };
+    const y0 = 2000, y1 = +LAST.slice(0, 4), yrs = [], maxV = [], meanV = [], minV = [];
+    for (let y = y0; y <= y1; y++) { const a = mm(cols[0], y), b = mm(cols[1], y), c = mm(cols[2], y); if (a !== null || b !== null || c !== null) { yrs.push(y); maxV.push(a); meanV.push(b); minV.push(c); } }
+    const av = v => { const f = v.filter(x => x !== null); return r1(f.reduce((a, b) => a + b, 0) / f.length); };
+    const L = baseLayout();
+    L.height = 340; L.showlegend = true; L.hovermode = "x unified";
+    L.legend = { orientation: "h", x: 0, y: 1.12, font: { color: css("--ink"), size: 11 } };
+    L.yaxis.rangemode = "normal";
+    L.shapes = trioShapes(detailYear, av(maxV), av(meanV), av(minV));
+    L.annotations = [];
+    $("t3h").textContent = MONTHS[m - 1] + " monthly mean " + (st === "hko" ? "HKO" : "King\u2019s Park") + " max/mean/min (°C) by year";
+    $("t3s").textContent = "Monthly mean of each temp (mean of days with data). Gray segment spans min\u2013max." +
+      " Dashed = all-years average. Shaded column = " + detailYear + ". Click a dot for its daily breakdown.";
+    Plotly.newPlot("p3", trioTraces(yrs, maxV, meanV, minV, detailYear), L, { displayModeBar: false, responsive: true });
+    hookClick("p3", p => { detailYear = p.x; renderMonth(); });
+    table("p3t", ["Year", "Max (°C)", "Mean (°C)", "Min (°C)"],
+      yrs.map((y, i) => [y, maxV[i], meanV[i], minV[i]]));
+    renderDetail();
+    return;
+  }
+  const word = F.agg === "sum" ? "total" : "mean";
   const y0 = 2000, y1 = +LAST.slice(0, 4), yrs = [], ag = [], ns = [];
   for (let y = y0; y <= y1; y++) {
     const a = monthAgg(y, m);
@@ -270,8 +349,24 @@ function renderMonth() {
   renderDetail();
 }
 function renderDetail() {
-  const F = FIELDS[field], m = month, y = detailYear;
+  const F = FIELDS[field], m = month, y = detailYear, st = TST(field);
   const dim = new Date(y, m, 0).getDate();
+  const L = baseLayout();
+  L.height = 300; L.margin.t = 44; L.showlegend = true; L.hovermode = "x unified";
+  L.legend = { orientation: "h", x: 0, y: 1.12, font: { color: css("--ink"), size: 11 } };
+  if (st) {
+    const cols = [["Max", "--tmax", st + "_max_c"], ["Mean", "--tmean", st + "_mean_c"], ["Min", "--tmin", st + "_min_c"]];
+    const days = []; for (let k = 1; k <= dim; k++) days.push(k);
+    const colDay = c => days.map(k => { const i = DATES.indexOf(y + "-" + String(m).padStart(2, "0") + "-" + String(k).padStart(2, "0")); return i < 0 ? null : COL[c][i]; });
+    const colTyp = c => days.map(k => { const vs = []; DATES.forEach((d, i) => { if (+d.slice(5, 7) === m && +d.slice(8, 10) === k && COL[c][i] !== null) vs.push(COL[c][i]); }); return vs.length ? r1(vs.reduce((a, b) => a + b, 0) / vs.length) : null; });
+    const tr = [];
+    cols.forEach(([nm, v, c]) => tr.push({ x: days, y: colDay(c), type: "scatter", mode: "lines", name: nm + " " + y, line: { color: css(v), width: 2 }, hovertemplate: MON_S[m - 1] + " %{x}, " + y + " " + nm + " · %{y} °C<extra></extra>" }));
+    cols.forEach(([nm, v, c], j) => tr.push({ x: days, y: colTyp(c), type: "scatter", mode: "lines", name: j === 0 ? "Typical (dashed)" : nm + " typical", legendgroup: "typical", showlegend: j === 0, line: { color: css(v), width: 1, dash: "dash" }, hovertemplate: MON_S[m - 1] + " %{x} typical " + nm + " · %{y} °C<extra></extra>" }));
+    $("t4h").textContent = MONTHS[m - 1] + " " + y + " daily vs typical " + MONTHS[m - 1];
+    $("t4s").textContent = "Solid = daily " + y + " Max/Mean/Min; dashed = typical (all-years daily mean of each).";
+    Plotly.newPlot("p4", tr, L, { displayModeBar: false, responsive: true });
+    return;
+  }
   const dy = [], dv = [];
   for (let k = 1; k <= dim; k++) {
     const d = y + "-" + String(m).padStart(2, "0") + "-" + String(k).padStart(2, "0");
@@ -286,9 +381,8 @@ function renderDetail() {
     });
     my.push(k); mn.push(vs.length ? r1(vs.reduce((a, b) => a + b, 0) / vs.length) : null);
   }
-  const L = baseLayout();
-  L.height = 300; L.margin.t = 44; L.showlegend = true;
   L.legend = { orientation: "h", x: 0, y: 1.12, font: { color: css("--secondary"), size: 11 } };
+  L.hovermode = undefined;
   $("t4h").textContent = MONTHS[m - 1] + " " + y + " daily vs typical " + MONTHS[m - 1];
   $("t4s").textContent = "Orange = daily " + y + "; gray dashed = all-years daily mean for " + MONTHS[m - 1] + ".";
   Plotly.newPlot("p4", [
