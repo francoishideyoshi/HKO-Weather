@@ -1,0 +1,49 @@
+name: Update data
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch data
+        run: python fetch.py
+      - name: Validate data
+        run: python test_fetch.py
+      - name: Commit data if changed
+        id: commit
+        run: |
+          if git diff --quiet data/daily.csv; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to data/daily.csv."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/daily.csv
+            LAST_DATE=$(tail -n1 data/daily.csv | cut -d, -f1)
+            git commit -m "Update data through ${LAST_DATE}"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Request Pages rebuild
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST repos/${{ github.repository }}/pages/builds || echo "::warning::Pages rebuild request failed"
