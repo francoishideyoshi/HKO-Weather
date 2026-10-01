@@ -124,10 +124,13 @@ const FIELDS = {
   hko_cloud_pct:  { label: "HKO cloud cover",            unit: "%",   agg: "mean", type: "line", noun: "HKO cloud cover" },
   kp_sun_hr:      { label: "King\u2019s Park sunshine",  unit: "h",   agg: "sum",  type: "bar",  noun: "King\u2019s Park sunshine" },
   kp_wind_kmh:    { label: "King\u2019s Park wind speed", unit: "km/h", agg: "mean", type: "line", noun: "King\u2019s Park wind speed" },
+  kp_hkhi_mean:   { label: "King\u2019s Park heat index, daily mean", unit: "HKHI", agg: "mean", type: "line", noun: "King\u2019s Park heat index, daily mean" },
+  kp_hkhi_max:    { label: "King\u2019s Park heat index, daily max", unit: "HKHI", agg: "mean", type: "line", noun: "King\u2019s Park heat index, daily max" },
 };
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MON_S = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const TST = f => ["hko_max_c","hko_mean_c","hko_min_c"].includes(f) ? "hko" : ["kp_max_c","kp_mean_c","kp_min_c"].includes(f) ? "kp" : null;
+const HKHI = f => ["kp_hkhi_mean","kp_hkhi_max"].includes(f) ? " Heat index data starts 30 May 2014." : "";
 function trioTraces(yrs, maxV, meanV, minV, sel) {
   const rx = [], ry = [];
   yrs.forEach((y, i) => { if (maxV[i] != null && minV[i] != null) { rx.push(y, y, null); ry.push(minV[i], maxV[i], null); } });
@@ -217,7 +220,7 @@ function renderTimeline() {
   L.shapes = [{ type: "line", x0: selDate, x1: selDate, yref: "paper", y0: 0, y1: 1,
     line: { color: css("--s2"), width: 1.5 } }];
   $("t1h").textContent = F.label + " (" + F.unit + "): daily, 2000\u2013" + LAST.slice(0, 4);
-  $("t1s").textContent = (F.type === "bar" ? "Daily bars." : "Daily line.") + " Orange line marks " + selDate + ". Click a point to select its date.";
+  $("t1s").textContent = (F.type === "bar" ? "Daily bars." : "Daily line.") + " Orange line marks " + selDate + ". Click a point to select its date." + HKHI(field);
   Plotly.newPlot("p1", [trace], L, { displayModeBar: false, responsive: true });
   hookClick("p1", p => setDate(p.x.slice ? p.x.slice(0, 10) : p.x));
 }
@@ -299,7 +302,7 @@ function renderDOY() {
   $("t2h").textContent = dLbl + " across years: " + F.label + " (" + F.unit + ")";
   const unit2 = dots ? "dot" : "bar";
   $("t2s").textContent = "One " + unit2 + " per year on " + dLbl + ". Blue = other years, orange = " + yr + "." +
-    (md === "02-29" ? " 29 Feb occurs in leap years only." : "") + " Click a " + unit2 + " to select that year.";
+    (md === "02-29" ? " 29 Feb occurs in leap years only." : "") + " Click a " + unit2 + " to select that year." + HKHI(field);
   applyYearZoom(L, yrs, [vals], F.agg === "sum");
   Plotly.newPlot("p2", traces, L, { displayModeBar: false, responsive: true, scrollZoom: false });
   hookClick("p2", p => setDate(p.x + "-" + md));
@@ -376,7 +379,7 @@ function renderMonth() {
   const unit3 = dots ? "dot" : "bar";
   $("t3h").textContent = MONTHS[m - 1] + " " + word + " " + F.noun + " (" + F.unit + ") by year";
   $("t3s").textContent = (F.agg === "sum" ? "Monthly total (sum of days with data)." : "Monthly mean of days with data.") +
-    " One " + unit3 + " per year. Orange = " + detailYear + ". Click a " + unit3 + " for its daily breakdown.";
+    " One " + unit3 + " per year. Orange = " + detailYear + ". Click a " + unit3 + " for its daily breakdown." + HKHI(field);
   applyYearZoom(L, yrs, [ag], F.agg === "sum");
   Plotly.newPlot("p3", traces, L, { displayModeBar: false, responsive: true, scrollZoom: false });
   hookClick("p3", p => { detailYear = p.x; renderMonth(); });

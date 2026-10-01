@@ -25,12 +25,16 @@ Three views: full timeline; same day-of-year across years; same month across yea
 | hko_cloud_pct | daily mean cloud cover | % | HKO |
 | kp_sun_hr | daily total sunshine | h | King's Park |
 | kp_wind_kmh | daily mean wind speed | km/h | King's Park |
+| kp_hkhi_mean | daily mean Hong Kong heat index | HKHI | King's Park |
+| kp_hkhi_max | daily max Hong Kong heat index | HKHI | King's Park |
 
 Stations: HKO (Tsim Sha Tsui HQ) and King's Park.
 
 ## Data
 
 Source: `https://data.weather.gov.hk/weatherAPI/cis/csvfile/{STN}/ALL/daily_{STN}_{CODE}_ALL.csv`
+
+Heat index source (different path): `https://data.weather.gov.hk/weatherAPI/hko_data/csdi/dataset/daily_{STN}_{CODE}_ALL.csv` (King's Park MEANHKHI/MAXHKHI, starts 2014-05-30; empty cells before that).
 
 Notes: "Trace" rainfall stored as 0.0; missing values are empty cells; files lag ~1 month. Wind direction is not available as a daily CSV.
 
